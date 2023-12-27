@@ -57,9 +57,19 @@ installation or install it via Admin Console. The plugin will then be automatica
 
 <h2>Configuration</h2>
 <p>
-Configuration can be changed and tested in Admin Console > Server Manager > Email settings.
-To not show email in the automated message create a system property "plugin.emailonaway.showemail" with
-the value "false".
+    Configuration can be changed and tested in Admin Console > Server Manager > Email settings.
+<p>
+<p>
+    To not show email in the automated message create a system property "plugin.emailonaway.showemail" with the value "false".
+</p>
+<p>
+    To subject of the email that is being sent is defined in the system property "plugin.emailonaway.email.subject"
+</p>
+<p>
+    To plain-text body of the email that is being sent defined in the system property "plugin.emailonaway.email.body.plain". When this value contains <tt>$$IMBODY$$</tt> then that will be replaced by the body of the chat message that was missed.
+</p>
+<p>
+    To HTML body of the email that is being sent defined in the system property "plugin.emailonaway.email.body.html". When this value contains <tt>$$IMBODY$$</tt> then that will be replaced by the body of the chat message that was missed.
 </p>
 
 </body>

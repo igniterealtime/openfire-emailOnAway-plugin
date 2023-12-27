@@ -1,19 +1,18 @@
 package com.tempstop;
 
 import org.jivesoftware.openfire.MessageRouter;
-import org.jivesoftware.openfire.session.Session;
+import org.jivesoftware.openfire.PresenceManager;
 import org.jivesoftware.openfire.XMPPServer;
 import org.jivesoftware.openfire.container.Plugin;
 import org.jivesoftware.openfire.container.PluginManager;
 import org.jivesoftware.openfire.interceptor.InterceptorManager;
 import org.jivesoftware.openfire.interceptor.PacketInterceptor;
 import org.jivesoftware.openfire.interceptor.PacketRejectedException;
+import org.jivesoftware.openfire.session.Session;
+import org.jivesoftware.openfire.user.User;
 import org.jivesoftware.openfire.user.UserManager;
 import org.jivesoftware.openfire.user.UserNotFoundException;
-import org.jivesoftware.openfire.user.User;
-import org.jivesoftware.openfire.PresenceManager;
 import org.jivesoftware.openfire.vcard.VCardManager;
-import org.jivesoftware.util.JiveGlobals;
 import org.jivesoftware.util.EmailService;
 import org.jivesoftware.util.SystemProperty;
 import org.slf4j.Logger;
@@ -22,8 +21,7 @@ import org.xmpp.packet.JID;
 import org.xmpp.packet.Message;
 import org.xmpp.packet.Packet;
 
-//import java.io.File;
-import java.io.*;
+import java.io.File;
 
 public class EmailOnAwayPlugin implements Plugin, PacketInterceptor
 {
@@ -35,6 +33,36 @@ public class EmailOnAwayPlugin implements Plugin, PacketInterceptor
         .setKey("plugin.emailonaway.showemail")
         .setPlugin("Email on Away")
         .setDefaultValue(true)
+        .setDynamic(true)
+        .build();
+
+    /**
+     * The subject of emails that are being sent.
+     */
+    public final SystemProperty<String> EMAIL_SUBJECT = SystemProperty.Builder.ofType(String.class)
+        .setKey("plugin.emailonaway.email.subject")
+        .setPlugin("Email on Away")
+        .setDefaultValue("IM")
+        .setDynamic(true)
+        .build();
+
+    /**
+     * The plain-text body of emails that are being sent. $$IMBODY$$ will be replaced with the body of the chat message that was missed.
+     */
+    public final SystemProperty<String> EMAIL_BODY_PLAIN = SystemProperty.Builder.ofType(String.class)
+        .setKey("plugin.emailonaway.email.body.plain")
+        .setPlugin("Email on Away")
+        .setDefaultValue("$$IMBODY$$")
+        .setDynamic(true)
+        .build();
+
+    /**
+     * The html-text body of emails that are being sent. $$IMBODY$$ will be replaced with the body of the chat message that was missed.
+     */
+    public final SystemProperty<String> EMAIL_BODY_HTML = SystemProperty.Builder.ofType(String.class)
+        .setKey("plugin.emailonaway.email.body.html")
+        .setPlugin("Email on Away")
+        .setDefaultValue("")
         .setDynamic(true)
         .build();
 
@@ -128,16 +156,16 @@ public class EmailOnAwayPlugin implements Plugin, PacketInterceptor
                                 emailTo,
                                 userFrom.getName(),
                                 emailFrom,
-                                "IM",
-                                msg.getBody(),
-                                null);
+                                EMAIL_SUBJECT.getValue(),
+                                EMAIL_BODY_PLAIN.getValue().isEmpty() ? null : EMAIL_BODY_PLAIN.getValue().replace("$$IMBODY$$", msg.getBody()),
+                                EMAIL_BODY_HTML.getValue().isEmpty() ? null : EMAIL_BODY_HTML.getValue().replace("$$IMBODY$$", msg.getBody()));
 
                             // Notify the sender that this went to email/sms
                             messageRouter.route(createServerMessage(packet.getFrom().asBareJID(), packet.getTo().asBareJID(), emailTo));
                         }
                     }
                 } catch (UserNotFoundException e) {
-                    Log.debug("Unable to determine if an email should be sent to a user that is away, as the user '{}' cannot be found.", packet.getTo(), e);
+                    Log.debug("Unable to determine if an email should be sent to a user that is away, as the user '{}' or '{}'  cannot be found.", packet.getTo(), packet.getFrom(), e);
                 }
             }
         }
