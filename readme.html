@@ -71,6 +71,8 @@ installation or install it via Admin Console. The plugin will then be automatica
 <p>
     To HTML body of the email that is being sent defined in the system property "plugin.emailonaway.email.body.html". When this value contains <tt>$$IMBODY$$</tt> then that will be replaced by the body of the chat message that was missed.
 </p>
-
+<p>
+    The plugin will try to look up the email address of senders and recipients of chat messages, but an email address can not always be found. The system property "plugin.emailonaway.use_xmpp_as_email_address" defines if the (bare) XMPP address of a user is to be used as an email address if no other address can be found. When configured to 'false', then the value from the system property "plugin.emailonaway.email.default_mail_address" will be used.
+</p>
 </body>
 </html>

@@ -66,6 +66,26 @@ public class EmailOnAwayPlugin implements Plugin, PacketInterceptor
         .setDynamic(true)
         .build();
 
+    /**
+     * Controls if the XMPP address is used as an e-mail address if no other email address could be looked up.
+     */
+    public final SystemProperty<Boolean> USE_XMPP_AS_EMAIL_ADDRESS = SystemProperty.Builder.ofType(Boolean.class)
+        .setKey("plugin.emailonaway.use_xmpp_as_email_address")
+        .setPlugin("Email on Away")
+        .setDefaultValue(true)
+        .setDynamic(true)
+        .build();
+
+    /**
+     * The default email address, to be used when no email address can be looked up for a user.
+     */
+    public final SystemProperty<String> DEFAULT_EMAIL_ADDRESS = SystemProperty.Builder.ofType(String.class)
+        .setKey("plugin.emailonaway.email.default_mail_address")
+        .setPlugin("Email on Away")
+        .setDefaultValue("no-reply@" + XMPPServer.getInstance().getServerInfo().getXMPPDomain())
+        .setDynamic(true)
+        .build();
+
     private static final Logger Log = LoggerFactory.getLogger(EmailOnAwayPlugin.class);
     private final InterceptorManager interceptorManager;
     private final UserManager userManager;
@@ -119,55 +139,132 @@ public class EmailOnAwayPlugin implements Plugin, PacketInterceptor
         {
             Message msg = (Message) packet;
 
-            if(msg.getType() == Message.Type.chat) {
-                try {
-                    User userTo = userManager.getUser(packet.getTo().getNode());
-                    if(presenceManager.getPresence(userTo).toString().toLowerCase().contains("away")) {
-                        // Status isn't away
-                        if(msg.getBody() != null) {
-                            // Build email/sms
-                            // The to email address
-                            emailTo = vcardManager.getVCardProperty(userTo.getUsername(), "EMAIL");
-                            if(emailTo == null || emailTo.isEmpty()) {
-                                emailTo = vcardManager.getVCardProperty(userTo.getUsername(), "EMAIL:USERID");
-                                if(emailTo == null || emailTo.isEmpty()) {
-                                    emailTo = userTo.getEmail();
-                                    if(emailTo == null || emailTo.isEmpty()) {
-                                        emailTo = packet.getTo().getNode() + "@" + packet.getTo().getDomain();
-                                    }
-                                }
-                            }
-                            // The From email address
-                            User userFrom = userManager.getUser(packet.getFrom().getNode());
-                            emailFrom = vcardManager.getVCardProperty(userFrom.getUsername(), "EMAIL");
-                            if(emailFrom == null || emailFrom.isEmpty()) {
-                                emailFrom = vcardManager.getVCardProperty(userFrom.getUsername(), "EMAIL:USERID");
-                                if(emailFrom == null || emailFrom.isEmpty()) {
-                                    emailFrom = userFrom.getEmail();
-                                    if(emailFrom == null || emailFrom.isEmpty()) {
-                                        emailFrom = packet.getFrom().getNode() + "@" + packet.getFrom().getDomain();
-                                    }
-                                }
-                            }
+            if (msg.getType() != Message.Type.chat) {
+                return;
+            }
+            if (!XMPPServer.getInstance().isLocal(packet.getTo())) {
+                return;
+            }
+            try {
+                final User userTo = userManager.getUser(packet.getTo().getNode());
+                if (!presenceManager.getPresence(userTo).toString().toLowerCase().contains("away")) {
+                    // Status isn't away
+                    return;
+                }
 
-                            // Send email/sms
-                            // if this is an sms... modify the recipient address
-                            emailService.sendMessage(userTo.getName(),
-                                emailTo,
-                                userFrom.getName(),
-                                emailFrom,
-                                EMAIL_SUBJECT.getValue(),
-                                EMAIL_BODY_PLAIN.getValue().isEmpty() ? null : EMAIL_BODY_PLAIN.getValue().replace("$$IMBODY$$", msg.getBody()),
-                                EMAIL_BODY_HTML.getValue().isEmpty() ? null : EMAIL_BODY_HTML.getValue().replace("$$IMBODY$$", msg.getBody()));
+                if (msg.getBody() == null) {
+                    return;
+                }
 
-                            // Notify the sender that this went to email/sms
-                            messageRouter.route(createServerMessage(packet.getFrom().asBareJID(), packet.getTo().asBareJID(), emailTo));
-                        }
+                // Build email
+                emailTo = determineEmailAddress(packet.getTo());
+                emailFrom = determineEmailAddress(packet.getFrom());
+
+                // Send email
+                emailService.sendMessage(
+                    determineName(packet.getTo()),
+                    emailTo,
+                    determineName(packet.getFrom()),
+                    emailFrom,
+                    EMAIL_SUBJECT.getValue(),
+                    EMAIL_BODY_PLAIN.getValue().isEmpty() ? null : EMAIL_BODY_PLAIN.getValue().replace("$$IMBODY$$", msg.getBody()),
+                    EMAIL_BODY_HTML.getValue().isEmpty() ? null : EMAIL_BODY_HTML.getValue().replace("$$IMBODY$$", msg.getBody()));
+
+                // Notify the sender that this went to email/sms
+                messageRouter.route(createServerMessage(packet.getFrom().asBareJID(), packet.getTo().asBareJID(), emailTo));
+
+                Log.trace("Sent an email to 'away' user '{}' that received a chat message from '{}'", packet.getTo(), packet.getFrom());
+            }
+            catch (UserNotFoundException e) {
+                Log.debug("Unable to determine if an email should be sent to a user that is away, as the user '{}' or '{}'  cannot be found.", packet.getTo(), packet.getFrom(), e);
+            }
+        }
+    }
+
+    /**
+     * Find a human-readable name for an XMPP address
+     *
+     * @param xmppAddress The XMPP address for what to look up a name
+     * @return The name belonging to the XMPP address
+     */
+    public String determineName(final JID xmppAddress)
+    {
+        try {
+            if (XMPPServer.getInstance().isLocal(xmppAddress)) {
+                final String username = xmppAddress.getNode();
+                String name = vcardManager.getVCardProperty(username, "FN");
+                if (name != null && !name.isEmpty()) {
+                    return name;
+                }
+
+                String givenName = vcardManager.getVCardProperty(username, "N:GIVEN");
+                String familyName = vcardManager.getVCardProperty(username, "N:FAMILY");
+                if (givenName != null && !givenName.isEmpty()) {
+                    name = givenName;
+                }
+                if (familyName != null && !familyName.isEmpty()) {
+                    if (name != null) {
+                        name += " ";
+                        name += familyName;
+                    } else {
+                        name = familyName;
                     }
-                } catch (UserNotFoundException e) {
-                    Log.debug("Unable to determine if an email should be sent to a user that is away, as the user '{}' or '{}'  cannot be found.", packet.getTo(), packet.getFrom(), e);
+                }
+                if (name != null && !name.isEmpty()) {
+                    return name;
+                }
+
+                name = vcardManager.getVCardProperty(username, "NICKNAME");
+                if (name != null && !name.isEmpty()) {
+                    return name;
+                }
+
+                name = userManager.getUser(username).getName();
+                if (name != null && !name.isEmpty()) {
+                    return name;
                 }
             }
+        } catch (UserNotFoundException e) {
+            Log.debug("Unable to find user for '{}'", xmppAddress.getNode(), e);
+        }
+
+        return "Chat User " + xmppAddress.toBareJID();
+    }
+
+    /**
+     * Find an email address belonging to the same user as the XMPP address
+     *
+     * @param xmppAddress The XMPP address for what to look up a name
+     * @return The email address belonging to the same user as the owner of the XMPP address
+     */
+    public String determineEmailAddress(final JID xmppAddress)
+    {
+        try {
+            if (XMPPServer.getInstance().isLocal(xmppAddress)) {
+                final String username = xmppAddress.getNode();
+                String email = vcardManager.getVCardProperty(username, "EMAIL");
+                if (email != null && !email.isEmpty()) {
+                    return email;
+                }
+
+                email = vcardManager.getVCardProperty(username, "EMAIL:USERID");
+                if (email != null && !email.isEmpty()) {
+                    return email;
+                }
+
+                email = userManager.getUser(username).getEmail();
+                if (email != null && !email.isEmpty()) {
+                    return email;
+                }
+            }
+        } catch (UserNotFoundException e) {
+            Log.debug("Unable to find user for '{}'", xmppAddress.getNode(), e);
+        }
+
+        if (USE_XMPP_AS_EMAIL_ADDRESS.getValue()) {
+            return xmppAddress.toBareJID();
+        } else {
+            return DEFAULT_EMAIL_ADDRESS.getValue();
         }
     }
 }
